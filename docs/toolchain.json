@@ -1,0 +1,11 @@
+{
+  "status": "PLANNED - versions measured and pinned in issue #1",
+  "platform": "windows+android+ios",
+  "framework": "Flutter stable",
+  "language": "Dart",
+  "bundle_identifier": "com.infinityball.bouldernotes",
+  "android_application_id": "com.infinityball.bouldernotes",
+  "ios_native_ipad_support": true,
+  "windows_primary_ci": "windows-latest",
+  "version_pin": null
+}

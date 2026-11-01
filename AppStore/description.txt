@@ -1,0 +1,3 @@
+Boulder Notes is a private, offline bouldering journal for recording gym sessions, routes, hold attempts, beta notes, and wall photos on phone, tablet, and Windows.
+
+Track route attempts honestly, preserve gym-specific color and grade tags, record personal difficulty notes, and keep session history when routes are reset. Review progress by gym and grade band, export portable local JSON backups with photos, and keep all data on your device without accounts, cloud sync, or social pressure.
