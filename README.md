@@ -28,7 +28,7 @@ Flutter stable, Windows/Android/iOS single codebase. iPhone, iPad and Android ta
 
 ## Status and development
 
-Planning scaffold only: no running application, generated icon, build results or release yet. Implement issues in order. Install Flutter stable and platform SDKs, then run `flutter create --platforms=windows,android,ios .`, `flutter test`, `flutter build windows --release`, `flutter build apk --debug`; verify Linux-hosted checks in a pinned Docker Flutter image. Platform-specific build claims require CI evidence. AppStore/description.txt describes planned behavior, not released features. Icon generation via OpenAI Images spark-media remains backlog work.
+Flutter 3.47.7/Dart 3.13.5 scaffold with Windows, Android and iOS runners. Startup shell only; session logging, photos, backup, real icon and release remain backlog work. On Linux ARM64, run pinned Flutter checks inside a container or use the matching ARM64-Dart Flutter graft; Windows and Android builds require CI evidence. Run `flutter pub get --enforce-lockfile`, `flutter analyze`, `flutter test`; Windows CI runs `flutter build windows --release`, Android CI runs `flutter build apk --debug`. iOS compile awaits macOS CI. AppStore/description.txt describes planned behavior, not released features.
 
 ## Release
 

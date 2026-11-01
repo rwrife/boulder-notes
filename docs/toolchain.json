@@ -1,11 +1,13 @@
 {
-  "status": "PLANNED - versions measured and pinned in issue #1",
+  "status": "scaffolded; platform build verification pending CI",
   "platform": "windows+android+ios",
-  "framework": "Flutter stable",
-  "language": "Dart",
+  "framework": "Flutter",
+  "flutter_version": "3.47.7",
+  "flutter_channel": "stable",
+  "flutter_revision": "abaf9c5237",
+  "dart_version": "3.13.5",
   "bundle_identifier": "com.infinityball.bouldernotes",
   "android_application_id": "com.infinityball.bouldernotes",
   "ios_native_ipad_support": true,
-  "windows_primary_ci": "windows-latest",
-  "version_pin": null
+  "windows_primary_ci": "windows-latest"
 }
