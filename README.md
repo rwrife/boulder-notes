@@ -28,7 +28,7 @@ Flutter stable, Windows/Android/iOS single codebase. iPhone, iPad and Android ta
 
 ## Status and development
 
-Flutter 3.47.7/Dart 3.13.5 scaffold with Windows, Android and iOS runners. Startup shell only; session logging, photos, backup, real icon and release remain backlog work. On Linux ARM64, run pinned Flutter checks inside a container or use the matching ARM64-Dart Flutter graft; Windows and Android builds require CI evidence. Run `flutter pub get --enforce-lockfile`, `flutter analyze`, `flutter test`; Windows CI runs `flutter build windows --release`, Android CI runs `flutter build apk --debug`. iOS compile awaits macOS CI. AppStore/description.txt describes planned behavior, not released features.
+Flutter 3.47.7/Dart 3.13.5 scaffold with Windows, Android and iOS runners. Pure Dart versioned local log model and atomic JSON file store are available; startup shell only, so session logging UI, photos, backup, real icon and release remain backlog work. On Linux ARM64, run pinned Flutter checks inside a container or use the matching ARM64-Dart Flutter graft; Windows and Android builds require CI evidence. Run `flutter pub get --enforce-lockfile`, `flutter analyze`, `flutter test`; Windows CI runs `flutter build windows --release`, Android CI runs `flutter build apk --debug`. iOS compile awaits macOS CI. AppStore/description.txt describes planned behavior, not released features.
 
 ## Release
 
