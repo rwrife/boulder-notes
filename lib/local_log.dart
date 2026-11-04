@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
-// ponytail: Schema 2 migrates schema 1 only; add explicit migrations when format changes.
-const logSchema = 2;
+// ponytail: Schemas 1 and 2 migrate to 3; add explicit migrations when format changes.
+const logSchema = 3;
 
 enum GradeSystem { vScale, font, gymColor }
 
-enum AttemptResult { flash, send, fail, repeat }
+enum AttemptResult { flash, send, fail, repeat, project }
+
+// Existing 'send' records are redpoints; retain their wire value for old backups.
 
 String _string(Map<String, dynamic> json, String key) {
   final value = json[key];
@@ -56,13 +58,23 @@ class Gym {
 }
 
 class ClimbingSession {
-  const ClimbingSession(this.id, this.gymId, this.date);
+  const ClimbingSession(this.id, this.gymId, this.date, {this.notes});
   final String id;
   final String gymId;
   final String date;
-  factory ClimbingSession.fromJson(Map<String, dynamic> j) =>
-      ClimbingSession(_string(j, 'id'), _string(j, 'gymId'), _date(j, 'date'));
-  Map<String, dynamic> toJson() => {'id': id, 'gymId': gymId, 'date': date};
+  final String? notes;
+  factory ClimbingSession.fromJson(Map<String, dynamic> j) => ClimbingSession(
+    _string(j, 'id'),
+    _string(j, 'gymId'),
+    _date(j, 'date'),
+    notes: _optional(j, 'notes'),
+  );
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'gymId': gymId,
+    'date': date,
+    'notes': notes,
+  };
 }
 
 class GymReset {
@@ -84,6 +96,10 @@ class ClimbRoute {
     this.grade, {
     this.archivedAt,
     this.resetId,
+    this.wallSection,
+    this.colorTag,
+    this.photoPath,
+    this.difficulty,
   });
   final String id;
   final String gymId;
@@ -92,6 +108,10 @@ class ClimbRoute {
   final String? grade;
   final String? archivedAt;
   final String? resetId;
+  final String? wallSection;
+  final String? colorTag;
+  final String? photoPath;
+  final String? difficulty;
   factory ClimbRoute.fromJson(Map<String, dynamic> j) => ClimbRoute(
     _string(j, 'id'),
     _string(j, 'gymId'),
@@ -100,6 +120,10 @@ class ClimbRoute {
     _optional(j, 'grade'),
     archivedAt: j['archivedAt'] == null ? null : _date(j, 'archivedAt'),
     resetId: _optional(j, 'resetId'),
+    wallSection: _optional(j, 'wallSection'),
+    colorTag: _optional(j, 'colorTag'),
+    photoPath: _optional(j, 'photoPath'),
+    difficulty: _optional(j, 'difficulty'),
   );
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -109,22 +133,35 @@ class ClimbRoute {
     'grade': grade,
     'archivedAt': archivedAt,
     'resetId': resetId,
+    'wallSection': wallSection,
+    'colorTag': colorTag,
+    'photoPath': photoPath,
+    'difficulty': difficulty,
   };
 }
 
 class Attempt {
-  const Attempt(this.id, this.sessionId, this.routeId, this.result, this.at);
+  const Attempt(
+    this.id,
+    this.sessionId,
+    this.routeId,
+    this.result,
+    this.at, {
+    this.verdict,
+  });
   final String id;
   final String sessionId;
   final String routeId;
   final AttemptResult result;
   final String at;
+  final String? verdict;
   factory Attempt.fromJson(Map<String, dynamic> j) => Attempt(
     _string(j, 'id'),
     _string(j, 'sessionId'),
     _string(j, 'routeId'),
     _choice(j, 'result', AttemptResult.values),
     _date(j, 'at'),
+    verdict: _optional(j, 'verdict'),
   );
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -132,6 +169,7 @@ class Attempt {
     'routeId': routeId,
     'result': result.name,
     'at': at,
+    'verdict': verdict,
   };
 }
 
@@ -189,6 +227,10 @@ class LocalLog {
               route.grade,
               archivedAt: reset.at,
               resetId: reset.id,
+              wallSection: route.wallSection,
+              colorTag: route.colorTag,
+              photoPath: route.photoPath,
+              difficulty: route.difficulty,
             )
           else
             route,
@@ -216,11 +258,24 @@ class LocalLog {
     for (final session in sessions) {
       unique(session.id);
       _requireDate(session.date);
+      if (session.notes != null && session.notes!.trim().isEmpty) {
+        throw const FormatException('Empty session notes');
+      }
     }
     for (final route in routes) {
       unique(route.id);
       if (route.label.trim().isEmpty ||
-          (route.grade != null && route.grade!.trim().isEmpty)) {
+          [
+            route.grade,
+            route.wallSection,
+            route.colorTag,
+            route.difficulty,
+          ].any((value) => value != null && value.trim().isEmpty) ||
+          (route.photoPath != null &&
+              (route.photoPath!.trim().isEmpty ||
+                  route.photoPath!.startsWith('/') ||
+                  route.photoPath!.contains('..') ||
+                  route.photoPath!.contains('\\')))) {
         throw const FormatException('Invalid route');
       }
       if (route.archivedAt != null) {
@@ -234,6 +289,9 @@ class LocalLog {
     for (final attempt in attempts) {
       unique(attempt.id);
       _requireDate(attempt.at);
+      if (attempt.verdict != null && attempt.verdict!.trim().isEmpty) {
+        throw const FormatException('Empty attempt verdict');
+      }
     }
     for (final note in notes) {
       unique(note.id);
@@ -270,8 +328,12 @@ class LocalLog {
       if (sessionById[attempt.sessionId] == null ||
           routeById[attempt.routeId] == null ||
           sessionById[attempt.sessionId]!.gymId !=
-              routeById[attempt.routeId]!.gymId) {
-        throw const FormatException('Cross-gym or orphan attempt');
+              routeById[attempt.routeId]!.gymId ||
+          (routeById[attempt.routeId]!.archivedAt != null &&
+              DateTime.parse(attempt.at).isAfter(
+                DateTime.parse(routeById[attempt.routeId]!.archivedAt!),
+              ))) {
+        throw const FormatException('Cross-gym, archived or orphan attempt');
       }
     }
     for (final note in notes) {
@@ -299,7 +361,7 @@ class LocalLog {
 
   factory LocalLog.fromJson(Map<String, dynamic> json) {
     final schema = json['schema'];
-    if (schema != 1 && schema != logSchema) {
+    if (schema != 1 && schema != 2 && schema != logSchema) {
       throw FormatException('Unsupported schema: $schema');
     }
     List<T> read<T>(String key, T Function(Map<String, dynamic>) parse) {

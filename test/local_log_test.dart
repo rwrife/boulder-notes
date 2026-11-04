@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:boulder_notes/local_log.dart';
+import 'package:boulder_notes/session_log.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -45,6 +46,7 @@ void main() {
       'send',
       'fail',
       'repeat',
+      'project',
     ]);
     expect(GradeSystem.values.map((e) => e.name), [
       'vScale',
@@ -74,7 +76,7 @@ void main() {
   test(
     'rejects future schema, malformed records, duplicate and orphan references',
     () {
-      final future = sample.toJson()..['schema'] = 3;
+      final future = sample.toJson()..['schema'] = 4;
       expect(() => LocalLog.fromJson(future), throwsFormatException);
       final malformed = sample.toJson()..['attempts'] = [23];
       expect(() => LocalLog.fromJson(malformed), throwsFormatException);
@@ -149,6 +151,71 @@ void main() {
       expect(await dir.list().length, 1);
       await file.writeAsString('{broken');
       await expectLater(store.load(), throwsFormatException);
+    },
+  );
+
+  test(
+    'SessionLog supports session, route, attempt, beta and photo attachments',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('boulder-session-');
+      addTearDown(() => dir.delete(recursive: true));
+      final store = LocalLogStore(File('${dir.path}/log.json'));
+      final log = SessionLog(store);
+      await log.addGym('The Foundry');
+      final gymId = log.data.gyms.single.id;
+      await log.addSession(gymId, notes: 'Morning power endurance');
+      final sessionId = log.data.sessions.single.id;
+      await log.addRoute(
+        gymId,
+        'Pink roof crimp',
+        grade: 'V5',
+        wall: 'Cave',
+        color: 'Pink',
+      );
+      final routeId = log.data.routes.single.id;
+      await log.attempt(
+        sessionId,
+        routeId,
+        AttemptResult.fail,
+        verdict: 'Hard V5',
+      );
+      await log.attempt(
+        sessionId,
+        routeId,
+        AttemptResult.send,
+        verdict: 'Soft V5',
+      );
+      await log.addNote(routeId, 'Heel hook before big reach');
+      await log.attachPhoto(routeId, [137, 80, 78, 71, 13, 10, 26, 10, 1]);
+      expect(log.data.routes.single.photoPath, endsWith('.png'));
+      await expectLater(
+        log.attachPhoto(routeId, [1, 2, 3, 4]),
+        throwsFormatException,
+      );
+      expect(log.data.routes.single.photoPath, endsWith('.png'));
+
+      final reloaded = SessionLog(store);
+      await reloaded.load();
+      expect(reloaded.data.gyms.single.name, 'The Foundry');
+      expect(reloaded.data.sessions.single.notes, 'Morning power endurance');
+      expect(reloaded.data.routes.single.wallSection, 'Cave');
+      expect(reloaded.data.routes.single.photoPath, startsWith('photos/'));
+      expect(reloaded.history(routeId).length, 2);
+      expect(reloaded.history(routeId).first.verdict, 'Hard V5');
+      expect(reloaded.history(routeId).last.result, AttemptResult.send);
+      expect(reloaded.data.notes.single.text, 'Heel hook before big reach');
+      expect(
+        File('${dir.path}/${reloaded.data.routes.single.photoPath!}')
+            .existsSync(),
+        isTrue,
+      );
+
+      await reloaded.archive(routeId);
+      expect(reloaded.data.routes.single.archivedAt, isNotNull);
+      expect(
+        () => reloaded.attempt(sessionId, routeId, AttemptResult.flash),
+        throwsStateError,
+      );
     },
   );
 }
