@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 void main() => runApp(const BoulderNotesApp());
 
@@ -40,6 +41,9 @@ class _BoulderNotesAppState extends State<BoulderNotesApp> {
   final betaNote = TextEditingController();
   bool busy = false;
   String? error;
+  bool showDetail = false; // ponytail: compact stack only; add deep links when routes need URLs.
+  final navigationFocus = FocusNode(debugLabel: 'Desktop navigation');
+  final detailFocus = FocusNode(debugLabel: 'Desktop route detail');
   final grade = TextEditingController();
   final wall = TextEditingController();
   final color = TextEditingController();
@@ -93,6 +97,8 @@ class _BoulderNotesAppState extends State<BoulderNotesApp> {
     ]) {
       c.dispose();
     }
+    navigationFocus.dispose();
+    detailFocus.dispose();
     super.dispose();
   }
 
@@ -136,15 +142,37 @@ class _BoulderNotesAppState extends State<BoulderNotesApp> {
   Widget build(BuildContext context) {
     final ios =
         (widget.platform ?? defaultTargetPlatform) == TargetPlatform.iOS;
+    final windows =
+        (widget.platform ?? defaultTargetPlatform) == TargetPlatform.windows;
     final page = Builder(
-      builder: (context) => SafeArea(child: _body(context, ios)),
+      builder: (context) {
+        final compact = MediaQuery.sizeOf(context).width < 800;
+        return PopScope(
+          canPop: !compact || !showDetail,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop && compact && showDetail) {
+              setState(() => showDetail = false);
+            }
+          },
+          child: SafeArea(child: _body(context, ios, windows)),
+        );
+      },
     );
     if (ios) {
       return CupertinoApp(
         title: 'Boulder Notes',
+        theme: const CupertinoThemeData(),
         home: CupertinoPageScaffold(
-          navigationBar: const CupertinoNavigationBar(
-            middle: Text('Boulder Notes'),
+          navigationBar: CupertinoNavigationBar(
+            middle: const Text('Boulder Notes'),
+            leading: showDetail
+                ? CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    key: const Key('compact-back-button'),
+                    onPressed: () => setState(() => showDetail = false),
+                    child: const Icon(CupertinoIcons.back),
+                  )
+                : null,
           ),
           child: page,
         ),
@@ -152,9 +180,27 @@ class _BoulderNotesAppState extends State<BoulderNotesApp> {
     }
     return MaterialApp(
       title: 'Boulder Notes',
-      theme: ThemeData(useMaterial3: true),
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: windows ? Colors.blueGrey : Colors.teal,
+          brightness: Brightness.light,
+        ),
+        visualDensity: windows
+            ? VisualDensity.compact
+            : VisualDensity.adaptivePlatformDensity,
+      ),
       home: Scaffold(
-        appBar: AppBar(title: const Text('Boulder Notes')),
+        appBar: AppBar(
+          title: Text(windows ? 'Boulder Notes — Desktop' : 'Boulder Notes'),
+          leading: showDetail
+              ? IconButton(
+                  key: const Key('compact-back-button'),
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => setState(() => showDetail = false),
+                )
+              : null,
+        ),
         body: page,
       ),
     );
@@ -190,11 +236,22 @@ class _BoulderNotesAppState extends State<BoulderNotesApp> {
         )
       : TextButton(
           key: Key('action-$label'),
+          style:
+              (widget.platform ?? defaultTargetPlatform) ==
+                  TargetPlatform.windows
+              ? TextButton.styleFrom(
+                  alignment: Alignment.centerLeft,
+                  minimumSize: const Size.fromHeight(40),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                )
+              : null,
           onPressed: action,
           child: Text(label),
         );
 
-  Widget _body(BuildContext context, bool ios) {
+  Widget _body(BuildContext context, bool ios, bool windows) {
     final current = log;
     if (current == null) {
       return Center(child: Text(error ?? 'Loading local log…'));
@@ -231,6 +288,7 @@ class _BoulderNotesAppState extends State<BoulderNotesApp> {
                   .lastOrNull
                   ?.id;
               routeId = null;
+              showDetail = false;
             }),
             ios,
           ),
@@ -277,7 +335,10 @@ class _BoulderNotesAppState extends State<BoulderNotesApp> {
         for (final r in routes)
           _button(
             '${r.label} ${r.grade ?? ''} ${r.wallSection ?? ''} ${r.colorTag ?? ''}${r.archivedAt == null ? '' : ' • archived'}',
-            () => setState(() => routeId = r.id),
+            () => setState(() {
+              routeId = r.id;
+              showDetail = true;
+            }),
             ios,
           ),
       ],
@@ -341,29 +402,89 @@ class _BoulderNotesAppState extends State<BoulderNotesApp> {
           ),
       ],
     ];
+
+    final navigationPane = Focus(
+      focusNode: navigationFocus,
+      autofocus: true,
+      child: Semantics(
+        label: 'Navigation and route catalog',
+        child: ListView(padding: const EdgeInsets.all(16), children: controls),
+      ),
+    );
+
+    final detailPane = Focus(
+      focusNode: detailFocus,
+      child: Semantics(
+        label: 'Route details, attempts, and beta history',
+        child: ListView(padding: const EdgeInsets.all(16), children: detail),
+      ),
+    );
+
+    return Shortcuts(
+      shortcuts: <ShortcutActivator, Intent>{
+        LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.digit1):
+            const FocusNavigationIntent(),
+        LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.digit2):
+            const FocusDetailIntent(),
+      },
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          FocusNavigationIntent: CallbackAction<FocusNavigationIntent>(
+            onInvoke: (_) => navigationFocus.requestFocus(),
+          ),
+          FocusDetailIntent: CallbackAction<FocusDetailIntent>(
+            onInvoke: (_) => detailFocus.requestFocus(),
+          ),
+        },
+        child: BoulderWorkspaceLayout(
+          navigationPane: navigationPane,
+          detailPane: detailPane,
+          showDetail: showDetail,
+        ),
+      ),
+    );
+  }
+}
+
+class FocusNavigationIntent extends Intent {
+  const FocusNavigationIntent();
+}
+
+class FocusDetailIntent extends Intent {
+  const FocusDetailIntent();
+}
+
+class BoulderWorkspaceLayout extends StatelessWidget {
+  const BoulderWorkspaceLayout({
+    super.key,
+    required this.navigationPane,
+    required this.detailPane,
+    this.showDetail = false,
+  });
+
+  final Widget navigationPane;
+  final Widget detailPane;
+  final bool showDetail;
+
+  @override
+  Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
+    // Responsive breakpoint: >= 800 width (tablet landscape / desktop) shows split view.
     if (width >= 800) {
       return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: controls,
-            ),
-          ),
+          Expanded(flex: width >= 1200 ? 2 : 3, child: navigationPane),
           const VerticalDivider(width: 1),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: detail,
-            ),
-          ),
+          Expanded(flex: width >= 1200 ? 3 : 4, child: detailPane),
         ],
       );
     }
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [...controls, ...detail],
+
+    // Phone / compact stack navigation.
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      child: showDetail ? detailPane : navigationPane,
     );
   }
 }

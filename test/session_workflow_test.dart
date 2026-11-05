@@ -40,6 +40,7 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('history-count')), findsOneWidget);
     expect(find.byKey(const Key('action-Log flash')), findsOneWidget);
+    expect(find.byType(BoulderWorkspaceLayout), findsOneWidget);
     // Persistence transitions run in local_log_test outside widget fake-async.
   });
 }
