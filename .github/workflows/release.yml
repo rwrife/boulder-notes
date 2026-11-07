@@ -1,0 +1,98 @@
+name: Windows release
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'README.md'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v* tag to publish
+        required: true
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: windows-release-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Validate tag
+        shell: pwsh
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          IS_PR: ${{ github.event_name == 'pull_request' }}
+        run: |
+          if ($env:IS_PR -eq 'true') {
+            $tag = 'v0.0.0-pr-dryrun'
+          } else {
+            $tag = if ($env:INPUT_TAG) { $env:INPUT_TAG } else { $env:REF_NAME }
+            if ($tag -cnotmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$') {
+              throw "Release tag must be a valid SemVer version tag (for example v0.1.0); got '$tag'."
+            }
+          }
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.7'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build windows --release
+      - name: Package and verify portable ZIP
+        shell: pwsh
+        run: |
+          $source = 'build/windows/x64/runner/Release'
+          if (!(Test-Path "$source/boulder_notes.exe" -PathType Leaf) -or
+              !(Test-Path "$source/flutter_windows.dll" -PathType Leaf) -or
+              !(Test-Path "$source/data/flutter_assets" -PathType Container)) {
+            throw 'Windows release bundle is incomplete.'
+          }
+          $archive = Join-Path $env:RUNNER_TEMP "boulder-notes-$env:RELEASE_TAG-windows-x64.zip"
+          Compress-Archive -Path "$source/*" -DestinationPath $archive -CompressionLevel Optimal
+          Add-Type -AssemblyName System.IO.Compression
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
+          try {
+            $entries = @($zip.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
+            foreach ($required in @('boulder_notes.exe', 'flutter_windows.dll')) {
+              if ($required -cnotin $entries) { throw "Missing archive member: $required" }
+            }
+            if (!($entries | Where-Object { $_.StartsWith('data/flutter_assets/', [StringComparison]::Ordinal) })) {
+              throw 'Missing Flutter assets in archive.'
+            }
+            if ((Get-Item $archive).Length -eq 0) { throw 'Empty archive.' }
+            foreach ($entry in $zip.Entries) {
+              if ($entry.Length -eq 0 -or $entry.FullName.EndsWith('/')) { continue }
+              $stream = $entry.Open()
+              try { $stream.CopyTo([System.IO.Stream]::Null) } finally { $stream.Dispose() }
+            }
+          } finally { $zip.Dispose() }
+          "RELEASE_ARCHIVE=$archive" >> $env:GITHUB_ENV
+      - name: Publish GitHub Release
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG $env:RELEASE_ARCHIVE --clobber --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $env:RELEASE_TAG $env:RELEASE_ARCHIVE --verify-tag --title $env:RELEASE_TAG --generate-notes --repo $env:GITHUB_REPOSITORY
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }
+          $assetName = Split-Path $env:RELEASE_ARCHIVE -Leaf
+          $assets = @(gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json assets --jq '.assets[].name')
+          if ($LASTEXITCODE -ne 0 -or $assetName -cnotin $assets) {
+            throw "Release asset was not published: $assetName"
+          }
+          Write-Output "Published asset: $assetName"
