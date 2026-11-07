@@ -39,7 +39,7 @@ jobs:
           "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.event.pull_request.head.sha || github.ref }}
           persist-credentials: false
       - uses: subosito/flutter-action@v2
         with:
@@ -57,13 +57,22 @@ jobs:
               !(Test-Path "$source/data/flutter_assets" -PathType Container)) {
             throw 'Windows release bundle is incomplete.'
           }
+          $vcredistDlls = @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
+          $redistDir = Get-ChildItem -Path "${env:ProgramFiles}\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -ErrorAction SilentlyContinue |
+            Where-Object { $dir = $_.FullName; @($vcredistDlls | Where-Object { !(Test-Path (Join-Path $dir $_) -PathType Leaf) }).Count -eq 0 } |
+            Select-Object -First 1
+          if (!$redistDir) { throw 'Complete Microsoft Visual C++ x64 runtime not found.' }
+          foreach ($dll in $vcredistDlls) {
+            Copy-Item (Join-Path $redistDir.FullName $dll) -Destination $source -Force
+          }
           $archive = Join-Path $env:RUNNER_TEMP "boulder-notes-$env:RELEASE_TAG-windows-x64.zip"
           Compress-Archive -Path "$source/*" -DestinationPath $archive -CompressionLevel Optimal
           Add-Type -AssemblyName System.IO.Compression
           $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
           try {
             $entries = @($zip.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
-            foreach ($required in @('boulder_notes.exe', 'flutter_windows.dll')) {
+            $requiredFiles = @('boulder_notes.exe', 'flutter_windows.dll', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
+            foreach ($required in $requiredFiles) {
               if ($required -cnotin $entries) { throw "Missing archive member: $required" }
             }
             if (!($entries | Where-Object { $_.StartsWith('data/flutter_assets/', [StringComparison]::Ordinal) })) {

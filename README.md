@@ -32,7 +32,7 @@ Flutter 3.47.7/Dart 3.13.5 scaffold with Windows, Android and iOS runners. Pure 
 
 ## Release
 
-`.github/workflows/release.yml` triggers on `v*` tag pushes or manual `workflow_dispatch` with an explicit existing `tag` parameter. Pull requests changing the release workflow or README run a build-and-archive dry run without publishing. The workflow builds the Windows portable application on `windows-latest` via `flutter build windows --release`, packages and verifies the portable release ZIP (`boulder_notes.exe`, `flutter_windows.dll`, and Flutter data assets), then publishes the archive to a GitHub Release for the tag. No release is published by a pull request.
+`.github/workflows/release.yml` triggers on `v*` tag pushes or manual `workflow_dispatch` with an explicit existing `tag` parameter. Pull requests changing the release workflow or README run a build-and-archive dry run without publishing. The workflow builds the Windows portable application on `windows-latest` via `flutter build windows --release`, packages and verifies the portable release ZIP (`boulder_notes.exe`, `flutter_windows.dll`, Visual C++ runtime DLLs, and Flutter data assets), then publishes the archive to a GitHub Release for the tag. No release is published by a pull request.
 
 Android Play and iOS TestFlight are later opt-in milestones. ASC secret names `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`, and `ASC_TEAM_ID` are reserved for future iOS publishing; secret values never enter the repository or release workflow logs.
 
