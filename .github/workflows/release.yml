@@ -79,12 +79,11 @@ jobs:
               throw 'Missing Flutter assets in archive.'
             }
             if ((Get-Item $archive).Length -eq 0) { throw 'Empty archive.' }
-            foreach ($entry in $zip.Entries) {
-              if ($entry.Length -eq 0 -or $entry.FullName.EndsWith('/')) { continue }
-              $stream = $entry.Open()
-              try { $stream.CopyTo([System.IO.Stream]::Null) } finally { $stream.Dispose() }
-            }
           } finally { $zip.Dispose() }
+          $sevenZip = Join-Path $env:ProgramFiles '7-Zip/7z.exe'
+          if (!(Test-Path $sevenZip -PathType Leaf)) { throw '7-Zip is required to validate archive CRCs.' }
+          & $sevenZip t $archive
+          if ($LASTEXITCODE -ne 0) { throw 'Portable ZIP CRC/integrity test failed.' }
           "RELEASE_ARCHIVE=$archive" >> $env:GITHUB_ENV
       - name: Publish GitHub Release
         if: github.event_name != 'pull_request'
