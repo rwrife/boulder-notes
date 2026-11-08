@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:boulder_notes/backup.dart';
 import 'package:boulder_notes/local_log.dart';
 import 'package:boulder_notes/session_log.dart';
 import 'package:file_picker/file_picker.dart';
@@ -12,6 +13,8 @@ import 'package:flutter/services.dart';
 void main() => runApp(const BoulderNotesApp());
 
 typedef PhotoPicker = Future<List<int>?> Function();
+typedef FileSaver = Future<void> Function(String fileName, Uint8List bytes);
+typedef FilePickerBytes = Future<Uint8List?> Function();
 
 class BoulderNotesApp extends StatefulWidget {
   const BoulderNotesApp({
@@ -20,17 +23,22 @@ class BoulderNotesApp extends StatefulWidget {
     this.store,
     this.pickPhoto,
     this.initialLog,
+    this.saveBackup,
+    this.pickBackup,
   });
   final TargetPlatform? platform;
   final LocalLogStore? store;
   final PhotoPicker? pickPhoto;
   final SessionLog? initialLog;
+  final FileSaver? saveBackup;
+  final FilePickerBytes? pickBackup;
 
   @override
   State<BoulderNotesApp> createState() => _BoulderNotesAppState();
 }
 
 class _BoulderNotesAppState extends State<BoulderNotesApp> {
+  final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
   SessionLog? log;
   String? gymId;
   String? sessionId;
@@ -120,6 +128,119 @@ class _BoulderNotesAppState extends State<BoulderNotesApp> {
     }
   }
 
+  Future<void> _exportBackup() async {
+    await _save((current) async {
+      final bytes = await LocalBackup(current.store).export();
+      final save =
+          widget.saveBackup ??
+          (String name, Uint8List data) async {
+            await FilePicker.saveFile(fileName: name, bytes: data);
+          };
+      await save('boulder-notes-backup.zip', bytes);
+    });
+  }
+
+  Future<void> _importBackup() async {
+    if (busy) return;
+    setState(() => error = null);
+    final pick =
+        widget.pickBackup ??
+        () async {
+          final file = await FilePicker.pickFile(
+            type: FileType.custom,
+            allowedExtensions: ['zip'],
+          );
+          if (file == null) return null;
+          final bytes = await file.readAsBytes();
+          if (bytes.length > maxBackupBytes) {
+            throw const FormatException('Backup too large');
+          }
+          return bytes;
+        };
+    try {
+      final bytes = await pick();
+      if (bytes == null) return;
+      if (!mounted ||
+          !await _confirm('Replace all local data with this backup?')) {
+        return;
+      }
+      if (await _save((current) => LocalBackup(current.store).import(bytes))) {
+        await _load();
+        if (mounted) {
+          setState(() {
+            routeId = null;
+            showDetail = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = 'Could not import backup: $e');
+    }
+  }
+
+  Future<bool> _confirm(String message) async {
+    final ios =
+        (widget.platform ?? defaultTargetPlatform) == TargetPlatform.iOS;
+    final dialogContext = navigatorKey.currentContext;
+    if (dialogContext == null) return false;
+    if (ios) {
+      return await showCupertinoDialog<bool>(
+            context: dialogContext,
+            builder: (context) => CupertinoAlertDialog(
+              title: Text(message),
+              actions: [
+                CupertinoDialogAction(
+                  child: const Text('Cancel'),
+                  onPressed: () => Navigator.pop(context, false),
+                ),
+                CupertinoDialogAction(
+                  isDestructiveAction: true,
+                  child: const Text('Continue'),
+                  onPressed: () => Navigator.pop(context, true),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+    }
+    return await showDialog<bool>(
+          context: dialogContext,
+          builder: (context) => AlertDialog(
+            title: Text(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Continue'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<void> _deleteAll() async {
+    if (!await _confirm(
+      'Delete all local data and photos? This cannot be undone. Export a backup first.',
+    )) {
+      return;
+    }
+    await _save((current) => LocalBackup(current.store).deleteAll());
+    // Reload even if photo cleanup failed: log file may already be gone.
+    if (mounted) {
+      await _load();
+      if (mounted) {
+        setState(() {
+          routeId = null;
+          showDetail = false;
+        });
+      }
+    }
+  }
+
   Future<void> _photo() async {
     final pick =
         widget.pickPhoto ??
@@ -160,6 +281,7 @@ class _BoulderNotesAppState extends State<BoulderNotesApp> {
     );
     if (ios) {
       return CupertinoApp(
+        navigatorKey: navigatorKey,
         title: 'Boulder Notes',
         theme: const CupertinoThemeData(),
         home: CupertinoPageScaffold(
@@ -179,6 +301,7 @@ class _BoulderNotesAppState extends State<BoulderNotesApp> {
       );
     }
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'Boulder Notes',
       theme: ThemeData(
         useMaterial3: true,
@@ -267,7 +390,10 @@ class _BoulderNotesAppState extends State<BoulderNotesApp> {
       const Text('Your climbing log stays on this device.'),
       if (busy) const Text('Saving…'),
       if (error != null)
-        Text('Could not save: $error', key: const Key('save-error')),
+        Text('Operation failed: $error', key: const Key('save-error')),
+      _button('Export backup ZIP', busy ? null : _exportBackup, ios),
+      _button('Import backup ZIP', busy ? null : _importBackup, ios),
+      _button('Delete all local data', busy ? null : _deleteAll, ios),
       _field('Gym name', gymInput, ios),
       _button('Add gym', () async {
         if (gymInput.text.trim().isEmpty) return;

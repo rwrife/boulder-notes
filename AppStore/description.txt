@@ -2,4 +2,4 @@ Boulder Notes is a private, offline bouldering journal for recording gym session
 
 Create a gym, log a session, add routes with gym-specific grades, colors and wall locations, and record sends, failures and your own difficulty notes. Keep past attempts and routes when a gym resets its wall. Pick wall photos yourself; the app stores them locally on your device. No account, ads, analytics, or cloud sync.
 
-Portable backup export and import are planned, not yet available. Boulder Notes is a personal log, not coaching or medical advice.
+Export sessions and attached wall photos as a portable local ZIP backup. Restore from a chosen backup, or delete all local log data and photos after confirmation. Boulder Notes is a personal log, not coaching or medical advice.
